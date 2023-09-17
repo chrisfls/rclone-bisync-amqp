@@ -58,6 +58,7 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
 
   await mkdir(logs);
 
+  let broadcast = true;
   let retry = false;
   let resync = !(await ensure(gitkeep));
   let wait = DEFAULT_RETRY_WAIT;
@@ -74,25 +75,16 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
     exchange: exchangeName,
   });
 
-  let pinging: Promise<void> | undefined;
-  let ponging: Promise<void> | undefined;
-
   const ping = useDebounce(
     () => {
-      log.info(`[queue] <${nick}> ping`);
-      pinging = notify();
+      pinging = sync();
     },
     debounce,
   );
 
-  const pong = useDebounce(
-    () => {
-      ponging = sync();
-    },
-    debounce * 3,
-  );
-
   const notify = async () => {
+    log.info(`[queue] <${nick}> ping`);
+
     await channel.publish(
       { exchange: exchangeName },
       { contentType: "application/json" },
@@ -105,21 +97,27 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
 
     const result = await bisync(local, remote, filters, resync, logs);
 
+    if (broadcast) await notify();
+
     if (result.success && result.code === 0) {
       log.info(`[sync]  <${nick}> finished`);
+
+      broadcast = false;
       retry = false;
       resync = false;
       wait = DEFAULT_RETRY_WAIT;
+
       await ensure(gitkeep);
+
       return;
     }
 
-    if (result.code == 1) {
-      log.warning(`[sync]  <${nick}> minor error: syncing again`);
-    } else {
-      log.warning(`[sync]  <${nick}> fatal error: resync on next try`);
-      await remove(gitkeep);
+    if (result.code !== 1) {
+      log.warning(`[sync]  <${nick}> fatal error: retry resync`);
       resync = true;
+      await remove(gitkeep);
+    } else {
+      log.warning(`[sync]  <${nick}> minor error: retry syncing`);
     }
 
     if (retry) {
@@ -129,10 +127,9 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
     }
 
     log.warning(`[sync]  <${nick}> retrying now`);
-    await remove(gitkeep);
     retry = true;
 
-    pong();
+    ping();
   };
 
   const consumer = await channel.consume(
@@ -145,16 +142,19 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
       }
 
       log.info(`[queue] <${nick}> pong`);
-      await ponging;
-      pong();
+      
+      await pinging;
+      ping();
       await delay(debounce); // allow other hosts to receive the message
       await channel.ack({ deliveryTag: args.deliveryTag });
     },
   );
 
   log.info(`[sync]  <${nick}> startup sync`);
-  ponging = sync();
-  await ponging;
+
+  let pinging = sync();
+
+  await pinging;
 
   const events = [
     "remove",
@@ -170,15 +170,15 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
     for (const path of event.paths) {
       if (event.kind !== "remove" && await test(path, filters)) continue;
       log.info(`[watch] <${nick}> ${event.kind} \`${path}\``);
-      await ponging;
-      pong();
       await pinging;
+      broadcast = true;
       ping();
+
       break;
     }
   }
 
   watcher.close();
 
-  await Promise.all([ponging, pinging, consumer]);
+  await Promise.all([pinging, pinging, consumer]);
 }
