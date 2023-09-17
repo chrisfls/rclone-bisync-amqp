@@ -6,6 +6,7 @@ import { test } from "./_test.ts";
 import { Folder } from "./types.ts";
 import { remove } from "./_remove.ts";
 import { getLogger } from "https://deno.land/std@0.201.0/log/mod.ts";
+import { mkdir } from "./_mkdir.ts";
 
 const DEFAULT_RETRY_WAIT = 5000;
 const MAX_RETRY_WAIT = 10 * 60 * 1000;
@@ -53,6 +54,9 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
   const gitkeep = path.join(local, ".gitkeep");
+  const logs = path.join(config.metadata, checksum);
+
+  await mkdir(logs);
 
   let retry = false;
   let resync = !(await ensure(gitkeep));
@@ -99,7 +103,7 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
   const sync = async () => {
     log.info(`[sync]  <${nick}> syncing `);
 
-    const result = await bisync(local, remote, filters, resync);
+    const result = await bisync(local, remote, filters, resync, logs);
 
     if (result.success && result.code === 0) {
       log.info(`[sync]  <${nick}> finished`);

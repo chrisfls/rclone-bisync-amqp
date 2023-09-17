@@ -1,13 +1,20 @@
+import { path } from "./deps.ts";
+
 export async function bisync(
   local: string,
   remote: string,
   filters: string,
   resync: boolean,
+  logs: string,
 ) {
+  const file = path.join(
+    logs,
+    `${new Date().toISOString().replaceAll(":", "_")}.txt`,
+  );
+
   return await new Deno.Command("rclone", {
     args: [
       "bisync",
-      "-v",
       local,
       remote,
       resync ? "--resync" : "--resilient",
@@ -15,9 +22,12 @@ export async function bisync(
       filters,
       "--create-empty-src-dirs",
       "--force",
+      `--log-file=${file}`,
+      "--log-level",
+      "INFO",
     ],
     stdin: "null",
-    stdout: "inherit",
-    stderr: "inherit",
+    stdout: "null",
+    stderr: "null",
   }).spawn().output();
 }
