@@ -44,7 +44,7 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
   const local = path.normalize(folder.path);
   const nick = checksum.slice(0, 6);
 
-  log.info(`[sync]  <${nick}> \`${folder}\` -> \`${remote}\``);
+  log.info(`[sync]  <${nick}> \`${folder.path}\` -> \`${remote}\``);
 
   const filters = await getFiltersFile(checksum, folder, config);
   const debounce = folder.debounce ?? config.debounce;
