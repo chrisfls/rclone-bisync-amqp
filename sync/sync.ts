@@ -6,7 +6,7 @@ import { Watch, watch } from "./_watch.ts";
 import { delay } from "https://deno.land/std@0.201.0/async/delay.ts";
 
 const DEFAULT_DEBOUNCE = 3000;
-const RECONNECT_WAIT_TIME = 1000 * 60;
+const RECONNECT_WAIT_TIME = 1000 * 10;
 
 const hostname = Deno.hostname();
 
