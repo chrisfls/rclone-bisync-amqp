@@ -1,6 +1,7 @@
 import { AmqpConnection } from "./deps.ts";
 
 export type Config = {
+  abort: AbortSignal;
   connection: AmqpConnection;
   hosts: Hosts;
   filters?: string[];

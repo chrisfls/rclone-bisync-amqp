@@ -7,12 +7,13 @@ import { Folder } from "./types.ts";
 import { remove } from "./_remove.ts";
 
 const DEFAULT_RETRY_WAIT = 5000;
-const MAX_RETRY_WAIT = 5 * 60 * 1000;
+const MAX_RETRY_WAIT = 10 * 60 * 1000;
 const hostname = Deno.hostname();
 
 export type Watch = {
-  log: Logger;
+  abort: AbortSignal;
   connection: AmqpConnection;
+  log: Logger;
   metadata: string;
   filters: string[];
   debounce: number;
@@ -129,9 +130,10 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
     pong();
   };
 
-  const consumer = channel.consume(
+  const consumer = await channel.consume(
     { queue: queueName },
     async (args, _props, data) => {
+
       if (decoder.decode(data) === hostname) {
         log.info(`[queue] <${nick}> pong (self)`);
         await channel.ack({ deliveryTag: args.deliveryTag });
@@ -159,6 +161,7 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
   const watcher = Deno.watchFs(local);
 
   for await (const event of watcher) {
+    if (config.abort.aborted) break;
     if (!events.includes(event.kind)) continue;
     for (const path of event.paths) {
       if (event.kind !== "remove" && await test(path, filters)) continue;
@@ -170,6 +173,8 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
       break;
     }
   }
+
+  watcher.close();
 
   await Promise.all([ponging, pinging, consumer]);
 }

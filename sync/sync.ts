@@ -22,7 +22,7 @@ export async function sync(config: Config) {
     return;
   }
 
-  const { connection } = config;
+  const { connection, abort } = config;
   const filters = config.filters ?? [];
   const debounce = config.debounce ?? DEFAULT_DEBOUNCE;
   const metadata = path.join(home, ".sync");
@@ -33,6 +33,7 @@ export async function sync(config: Config) {
   await Promise.all(
     Object.entries(folders).map(([r, l]) =>
       watch(r, l, {
+        abort,
         log,
         connection,
         metadata,
@@ -41,4 +42,6 @@ export async function sync(config: Config) {
       })
     ),
   );
+
+  await connection.closed();
 }
