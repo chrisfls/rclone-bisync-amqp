@@ -19,22 +19,21 @@ export async function bisync(
       filters,
       "--create-empty-src-dirs",
       "--force",
-      "--log-level",
-      "INFO",
+      "-v"
     ],
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
   }).output();
 
-  const stdout = decoder.decode(output.stdout);
-  const [, changes] = /Path1:\s+(\d+)\schanges\:/gm.exec(stdout) ?? [];
+  const stderr = decoder.decode(output.stderr);
+  const [, changes] = /Path1:\s+(\d+)\schanges\:/gm.exec(stderr) ?? [];
   const broadcast = (+changes) > 0;
 
   const file = path.join(logs, new Date().toISOString().replaceAll(":", "_"));
 
-  await Deno.writeTextFile(`${file}.stdout.txt`, stdout);
-  await Deno.writeTextFile(`${file}.stderr.txt`, decoder.decode(output.stderr));
+  await Deno.writeTextFile(`${file}.stdout.txt`, decoder.decode(output.stdout));
+  await Deno.writeTextFile(`${file}.stderr.txt`, stderr);
 
   return { broadcast, output };
 }
