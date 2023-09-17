@@ -1,8 +1,7 @@
-import { AmqpConnection } from "./deps.ts";
+import { AmqpConnectOptions } from "./deps.ts";
 
 export type Config = {
-  abort: AbortSignal;
-  connection: AmqpConnection;
+  connection: AmqpConnectOptions;
   hosts: Hosts;
   filters?: string[];
   debounce?: number;

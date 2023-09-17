@@ -1,19 +1,19 @@
 import { bisync } from "./_bisync.ts";
-import { AmqpConnection, delay, Logger, path, useDebounce } from "./deps.ts";
+import { AmqpConnection, delay, path, useDebounce } from "./deps.ts";
 import { ensure } from "./_ensure.ts";
 import { hash } from "./_hash.ts";
 import { test } from "./_test.ts";
 import { Folder } from "./types.ts";
 import { remove } from "./_remove.ts";
+import { getLogger } from "https://deno.land/std@0.201.0/log/mod.ts";
 
 const DEFAULT_RETRY_WAIT = 5000;
 const MAX_RETRY_WAIT = 10 * 60 * 1000;
 const hostname = Deno.hostname();
 
 export type Watch = {
-  abort: AbortSignal;
+  signal: AbortSignal;
   connection: AmqpConnection;
-  log: Logger;
   metadata: string;
   filters: string[];
   debounce: number;
@@ -34,8 +34,9 @@ async function getFiltersFile(checksum: string, folder: Folder, config: Watch) {
 }
 
 export async function watch(remote: string, folder: Folder, config: Watch) {
-  const { log, connection } = config;
+  const { connection } = config;
 
+  const log = getLogger();
   const channel = await connection.openChannel();
   const checksum = await hash(remote);
 
@@ -133,7 +134,6 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
   const consumer = await channel.consume(
     { queue: queueName },
     async (args, _props, data) => {
-
       if (decoder.decode(data) === hostname) {
         log.info(`[queue] <${nick}> pong (self)`);
         await channel.ack({ deliveryTag: args.deliveryTag });
@@ -161,7 +161,7 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
   const watcher = Deno.watchFs(local);
 
   for await (const event of watcher) {
-    if (config.abort.aborted) break;
+    if (config.signal.aborted) break;
     if (!events.includes(event.kind)) continue;
     for (const path of event.paths) {
       if (event.kind !== "remove" && await test(path, filters)) continue;
