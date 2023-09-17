@@ -99,7 +99,7 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
     if (result.broadcast) await notify();
 
     if (result.output.success && result.output.code === 0) {
-      log.info(`[sync]  <${nick}> finished`);
+      log.info(`[sync]  <${nick}> done`);
 
       retry = false;
       resync = false;

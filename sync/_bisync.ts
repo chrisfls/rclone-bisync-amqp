@@ -14,34 +14,34 @@ export async function bisync(
     `${new Date().toISOString().replaceAll(":", "_")}.txt`,
   );
 
-  const args = [
-    "bisync",
-    local,
-    remote,
-    resync ? "--resync" : "--resilient",
-    "--filters-file",
-    filters,
-    "--create-empty-src-dirs",
-    "--force",
-  ];
-
   const check = await new Deno.Command("rclone", {
     args: [
-      ...args,
-      "--dry-run",
+      "cryptcheck", // TODO: parameterize "check" | "cryptcheck"
+      local,
+      remote,
+      "--one-way",
+      "--filter-from",
+      filters,
     ],
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
   }).output();
 
-  if (!check.success || !decoder.decode(check.stdout).includes("--dry-run")) {
-    return { broadcast: false, output: check };
-  }
+  const broadcast = decoder.decode(check.stderr).includes(
+    "Failed to cryptcheck:",
+  );
 
   const sync = await new Deno.Command("rclone", {
     args: [
-      ...args,
+      "bisync",
+      local,
+      remote,
+      resync ? "--resync" : "--resilient",
+      "--filters-file",
+      filters,
+      "--create-empty-src-dirs",
+      "--force",
       `--log-file=${file}`,
       "--log-level",
       "INFO",
@@ -51,5 +51,5 @@ export async function bisync(
     stderr: "null",
   }).spawn().output();
 
-  return { broadcast: true, output: sync };
+  return { broadcast, output: sync };
 }
