@@ -58,7 +58,6 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
 
   await mkdir(logs);
 
-  let broadcast = true;
   let retry = false;
   let resync = !(await ensure(gitkeep));
   let wait = DEFAULT_RETRY_WAIT;
@@ -97,12 +96,11 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
 
     const result = await bisync(local, remote, filters, resync, logs);
 
-    if (broadcast) await notify();
+    if (result.broadcast) await notify();
 
-    if (result.success && result.code === 0) {
+    if (result.output.success && result.output.code === 0) {
       log.info(`[sync]  <${nick}> finished`);
 
-      broadcast = false;
       retry = false;
       resync = false;
       wait = DEFAULT_RETRY_WAIT;
@@ -112,7 +110,7 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
       return;
     }
 
-    if (result.code !== 1) {
+    if (result.output.code !== 1) {
       log.warning(`[sync]  <${nick}> fatal error: retry resync`);
       resync = true;
       await remove(gitkeep);
@@ -142,7 +140,7 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
       }
 
       log.info(`[queue] <${nick}> pong`);
-      
+
       await pinging;
       ping();
       await delay(debounce); // allow other hosts to receive the message
@@ -171,7 +169,6 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
       if (event.kind !== "remove" && await test(path, filters)) continue;
       log.info(`[watch] <${nick}> ${event.kind} \`${path}\``);
       await pinging;
-      broadcast = true;
       ping();
 
       break;
