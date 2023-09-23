@@ -1,4 +1,4 @@
-import { bisync } from "./_bisync.ts";
+import { bisync, Changeset } from "./_bisync.ts";
 import { AmqpConnection, delay, path, useDebounce } from "./deps.ts";
 import { ensure } from "./_ensure.ts";
 import { hash } from "./_hash.ts";
@@ -10,6 +10,7 @@ import { mkdir } from "./_mkdir.ts";
 
 const DEFAULT_RETRY_WAIT = 5000;
 const MAX_RETRY_WAIT = 10 * 60 * 1000;
+const DEFAULT_EXPIRATION = (60 * 60 * 1000).toString(); // 1 hour
 const hostname = Deno.hostname();
 
 export type Watch = {
@@ -18,6 +19,11 @@ export type Watch = {
   metadata: string;
   filters: string[];
   debounce: number;
+};
+
+type Msg = {
+  hostname: string;
+  changeset: Changeset;
 };
 
 async function getFiltersFile(checksum: string, folder: Folder, config: Watch) {
@@ -34,6 +40,19 @@ async function getFiltersFile(checksum: string, folder: Folder, config: Watch) {
   return file;
 }
 
+const events = [
+  "remove",
+  "create",
+  "modify",
+];
+
+function isWatched(kind: string): kind is "remove" | "create" | "modify" {
+  return events.includes(kind);
+}
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
 export async function watch(remote: string, folder: Folder, config: Watch) {
   const { connection } = config;
 
@@ -43,7 +62,6 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
 
   const exchangeName = `exchange.${checksum}`;
   const queueName = `queue.${hostname}.${checksum}`;
-
   const local = path.normalize(folder.path);
   const nick = checksum.slice(0, 6);
 
@@ -51,8 +69,6 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
 
   const filters = await getFiltersFile(checksum, folder, config);
   const debounce = folder.debounce ?? config.debounce;
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
   const gitkeep = path.join(local, ".gitkeep");
   const logs = path.join(config.metadata, checksum);
 
@@ -81,13 +97,13 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
     debounce,
   );
 
-  const notify = async () => {
+  const notify = async (changeset: Changeset) => {
     log.info(`[queue] <${nick}> ping`);
 
     await channel.publish(
       { exchange: exchangeName },
-      { contentType: "application/json" },
-      encoder.encode(hostname),
+      { contentType: "application/json", expiration: DEFAULT_EXPIRATION },
+      encoder.encode(JSON.stringify({ hostname, changeset })),
     );
   };
 
@@ -96,7 +112,11 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
 
     const result = await bisync(local, remote, filters, resync, logs);
 
-    if (result.broadcast) await notify();
+    for (const set of Object.values(skip)) {
+      set.clear();
+    }
+
+    if (result.changed) await notify(result.changeset);
 
     if (result.output.success && result.output.code === 0) {
       log.info(`[sync]  <${nick}> done`);
@@ -130,23 +150,37 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
     ping();
   };
 
+  const skip = {
+    create: new Set<string>(),
+    modify: new Set<string>(),
+    remove: new Set<string>(),
+  };
+
   const consumer = await channel.consume(
     { queue: queueName },
     async (args, _props, data) => {
-      if (decoder.decode(data) === hostname) {
-        log.info(`[queue] <${nick}> pong (self)`);
-        await channel.ack({ deliveryTag: args.deliveryTag });
+      await channel.ack({ deliveryTag: args.deliveryTag });
+
+      const msg: Msg = JSON.parse(decoder.decode(data));
+
+      if (msg.hostname === hostname) {
         return;
       }
 
       log.info(`[queue] <${nick}> pong`);
 
+      for (const [kind, set] of Object.entries(skip)) {
+        for (const file of msg.changeset[kind as keyof typeof skip]) {
+          set.add(path.normalize(file));
+        }
+      }
+
       await pinging;
       ping();
-      await delay(debounce); // allow other hosts to receive the message
-      await channel.ack({ deliveryTag: args.deliveryTag });
     },
   );
+
+  const watcher = Deno.watchFs(local);
 
   log.info(`[sync]  <${nick}> startup sync`);
 
@@ -154,20 +188,26 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
 
   await pinging;
 
-  const events = [
-    "remove",
-    "create",
-    "modify",
-  ];
-
-  const watcher = Deno.watchFs(local);
-
   for await (const event of watcher) {
     if (config.signal.aborted) break;
-    if (!events.includes(event.kind)) continue;
-    for (const path of event.paths) {
-      if (event.kind !== "remove" && await test(path, filters)) continue;
-      log.info(`[watch] <${nick}> ${event.kind} \`${path}\``);
+    if (!isWatched(event.kind)) continue;
+    for (const filePath of event.paths) {
+      const relativePath = path.relative(local, filePath);
+
+      if (skip[event.kind].has(relativePath)) {
+        skip[event.kind].delete(relativePath);
+        continue;
+      }
+
+      if (/\..*\.partial$/.test(filePath)) {
+        continue;
+      }
+
+      if (event.kind !== "remove" && await test(filePath, filters)) {
+        continue;
+      }
+
+      log.info(`[watch] <${nick}> ${event.kind} \`${relativePath}\``);
       await pinging;
       ping();
 
