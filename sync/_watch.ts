@@ -194,6 +194,8 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
     for (const filePath of event.paths) {
       const relativePath = path.relative(local, filePath);
 
+      if (relativePath === '.gitkeep') continue;
+
       if (skip[event.kind].has(relativePath)) {
         skip[event.kind].delete(relativePath);
         continue;
