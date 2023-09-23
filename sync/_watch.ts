@@ -107,7 +107,7 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
     );
   };
 
-  const sync = async () => {
+  const sync = async (startup = false) => {
     log.info(`[sync]  <${nick}> syncing `);
 
     const result = await bisync(local, remote, filters, resync, logs);
@@ -147,7 +147,11 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
     log.warning(`[sync]  <${nick}> retrying now`);
     retry = true;
 
-    ping();
+    if (startup) {
+      await sync(startup);
+    } else {
+      ping();
+    }
   };
 
   const skip = {
@@ -184,8 +188,7 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
 
   log.info(`[sync]  <${nick}> startup sync`);
 
-  let pinging = sync();
-
+  let pinging = sync(true);
   await pinging;
 
   for await (const event of watcher) {
@@ -194,7 +197,7 @@ export async function watch(remote: string, folder: Folder, config: Watch) {
     for (const filePath of event.paths) {
       const relativePath = path.relative(local, filePath);
 
-      if (relativePath === '.gitkeep') continue;
+      if (relativePath === ".gitkeep") continue;
 
       if (skip[event.kind].has(relativePath)) {
         skip[event.kind].delete(relativePath);
